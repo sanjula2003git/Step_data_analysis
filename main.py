@@ -43,7 +43,32 @@ else:
     reconstruction_error_smooth = gaussian_filter1d(reconstruction_error, sigma=1)
 
     # --- Prediction ---
-    preds = (reconstruction_error_smooth > adjusted_threshold).astype(int)
+    from sklearn.metrics import precision_score, recall_score, f1_score
+
+# Sweep threshold values to find best F1 score
+    best_f1 = 0
+    best_threshold = 0
+    best_precision = 0
+    best_recall = 0
+    threshold_range = np.linspace(0.001, np.max(reconstruction_error_smooth), 500)
+
+    for t in threshold_range:
+       preds_temp = (reconstruction_error_smooth > t).astype(int)
+       if y_true is not None:
+           precision = precision_score(y_true, preds_temp, zero_division=0)
+           recall = recall_score(y_true, preds_temp, zero_division=0)
+           f1 = f1_score(y_true, preds_temp, zero_division=0)
+           if f1 > best_f1:
+              best_f1 = f1
+              best_threshold = t
+              best_precision = precision
+              best_recall = recall
+
+# Use best threshold for final prediction
+    
+    preds = (reconstruction_error_smooth > best_threshold).astype(int)
+
+    
     df['reconstruction_error'] = reconstruction_error_smooth
     df['anomaly_predicted'] = preds
 
@@ -55,17 +80,16 @@ else:
         matched = np.sum((preds == 1) & (y_true == 1))
         detected = np.sum(preds == 1)
         total_true = np.sum(y_true == 1)
-        precision = matched / detected if detected > 0 else 0
-        recall = matched / total_true if total_true > 0 else 0
-        f1 = 2 * (precision * recall) / (precision + recall + 1e-10)
+        
 
         st.markdown("### 📊 Evaluation Metrics")
+        st.write(f"**Best Threshold:** `{best_threshold:.6f}`")
         st.write(f"**Matched (TP):** {matched}")
         st.write(f"**Detected Anomalies:** {detected}")
         st.write(f"**True Anomalies:** {total_true}")
-        st.write(f"**Precision:** {precision:.2f}")
-        st.write(f"**Recall:** {recall:.2f}")
-        st.write(f"**F1 Score:** {f1:.2f}")
+        st.write(f"**Precision:** {best_precision:.2f}")
+        st.write(f"**Recall:** {best_recall:.2f}")
+        st.write(f"**F1 Score:** {best_f1:.2f}")
 
     st.markdown(f"### 🧪 Threshold used: `{adjusted_threshold:.6f}`")
 

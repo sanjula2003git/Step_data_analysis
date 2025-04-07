@@ -17,9 +17,7 @@ uploaded_file = st.file_uploader("Upload step_data-2.csv", type=["csv"])
 if uploaded_file is not None:
     # --- Data Loading ---
     df = pd.read_csv(uploaded_file)
-    else:
-    st.warning("No file uploaded. Using default data.")
-    df = pd.read_csv(uploaded_file)
+    
     features = ['steps', 'activity_duration', 'step_frequency', 'rest_period', 'noise_flag', 'battery_level']
     
     try:

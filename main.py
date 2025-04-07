@@ -74,7 +74,7 @@ else:
              best_f1 = f1
              best_threshold = t
              best_precision = precision
-             best_recall = recallif best_threshold == 0:  # fallback if no threshold meets precision requirement
+             best_recall = recall  # fallback if no threshold meets precision requirement
    
 
 # Use best threshold for final prediction

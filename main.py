@@ -64,13 +64,13 @@ else:
               best_precision = precision
               best_recall = recall
     if best_threshold == 0:  # fallback if no threshold meets precision requirement
-    st.warning("No threshold met the precision requirement. Showing highest F1 score instead.")
-    for t in np.linspace(0.001, np.max(reconstruction_error_smooth), 500):
-        preds_temp = (reconstruction_error_smooth > t).astype(int)
-        precision = precision_score(y_true, preds_temp, zero_division=0)
-        recall = recall_score(y_true, preds_temp, zero_division=0)
-        f1 = f1_score(y_true, preds_temp, zero_division=0)
-        if f1 > best_f1:
+       st.warning("No threshold met the precision requirement. Showing highest F1 score instead.")
+       for t in np.linspace(0.001, np.max(reconstruction_error_smooth), 500):
+          preds_temp = (reconstruction_error_smooth > t).astype(int)
+          precision = precision_score(y_true, preds_temp, zero_division=0)
+          recall = recall_score(y_true, preds_temp, zero_division=0)
+          f1 = f1_score(y_true, preds_temp, zero_division=0)
+          if f1 > best_f1:
             best_f1 = f1
             best_threshold = t
             best_precision = precision

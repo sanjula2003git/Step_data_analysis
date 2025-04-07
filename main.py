@@ -98,3 +98,4 @@ with st.form("anomaly_form"):
         else:
             st.success("✅ No Anomaly Detected.")
         st.write(f"Reconstruction Error: `{user_error_smooth[0]:.6f}`")
+

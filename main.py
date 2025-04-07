@@ -8,7 +8,7 @@ from scipy.ndimage import gaussian_filter1d
 st.set_page_config(page_title="Pet Activity Anomaly Detection")
 
 # Load model
-model = load_model("autoencoder_anomaly_model.keras")
+model = load_model("model.weights.h5")
 
 st.title("🐾 Pet Activity Anomaly Detection")
 

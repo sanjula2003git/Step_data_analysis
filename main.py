@@ -8,7 +8,7 @@ from scipy.ndimage import gaussian_filter1d
 st.set_page_config(page_title="Pet Activity Anomaly Detection")
 
 # Load model
-model = load_model("full_model.h5")
+model = load_model("full_model.h5",compile=False)
 
 st.title("🐾 Pet Activity Anomaly Detection")
 

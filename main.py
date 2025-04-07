@@ -1,49 +1,56 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import joblib
 from tensorflow.keras.models import load_model
-from sklearn.preprocessing import StandardScaler
 from scipy.ndimage import gaussian_filter1d
 
-st.set_page_config(page_title="Pet Activity Anomaly Detection")
-
-# Load model
-model = load_model("full_model.h5",compile=False)
+# --- Page Config ---
+st.set_page_config(page_title="🐾 Pet Activity Anomaly Detection")
 
 st.title("🐾 Pet Activity Anomaly Detection")
 
-# Load CSV directly
-df = pd.read_csv("step_data-2.csv")  # replace with your actual file
+# --- Load Model & Scaler ---
+model = load_model("full_model.h5", compile=False)
+scaler = joblib.load("scaler.pkl")
+
+# --- Load Threshold ---
+try:
+    with open("threshold.txt", "r") as f:
+        adjusted_threshold = float(f.read().strip())
+except FileNotFoundError:
+    st.error("❌ Threshold file not found! Please ensure 'threshold.txt' exists.")
+    st.stop()
+
+# --- Load CSV File ---
+df = pd.read_csv("step_data-2.csv")
 st.write("✅ Loaded local CSV file: step_data-2.csv")
 
-# Check required columns
+# --- Required Features ---
 required_cols = ['steps', 'activity_duration', 'step_frequency', 'rest_period', 'noise_flag', 'battery_level']
+
 if not all(col in df.columns for col in required_cols):
-    st.error(f"CSV must contain these columns: {required_cols}")
+    st.error(f"❌ CSV must contain these columns: {required_cols}")
 else:
-    # Prepare data
+    # --- Feature Extraction ---
     X = df[required_cols].values
     y_true = df['anomaly_detected'].values if 'anomaly_detected' in df.columns else None
 
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-
-    # Model prediction
+    # --- Scale & Predict ---
+    X_scaled = scaler.transform(X)
     X_pred = model.predict(X_scaled)
     reconstruction_error = np.mean(np.square(X_scaled - X_pred), axis=1)
     reconstruction_error_smooth = gaussian_filter1d(reconstruction_error, sigma=1)
 
-    # Threshold slider
-    threshold = st.slider("Set anomaly threshold", 0.0, float(np.max(reconstruction_error_smooth)), 0.02)
-    preds = (reconstruction_error_smooth > threshold).astype(int)
-
-    # Display results
+    # --- Prediction ---
+    preds = (reconstruction_error_smooth > adjusted_threshold).astype(int)
     df['reconstruction_error'] = reconstruction_error_smooth
     df['anomaly_predicted'] = preds
 
     st.success("✅ Anomaly detection complete!")
     st.dataframe(df[['steps', 'activity_duration', 'step_frequency', 'anomaly_predicted']])
 
+    # --- Metrics ---
     if y_true is not None:
         matched = np.sum((preds == 1) & (y_true == 1))
         detected = np.sum(preds == 1)
@@ -52,10 +59,42 @@ else:
         recall = matched / total_true if total_true > 0 else 0
         f1 = 2 * (precision * recall) / (precision + recall + 1e-10)
 
-        st.markdown("### 📊 Metrics")
-        st.write(f"**Matched:** {matched}")
+        st.markdown("### 📊 Evaluation Metrics")
+        st.write(f"**Matched (TP):** {matched}")
         st.write(f"**Detected Anomalies:** {detected}")
         st.write(f"**True Anomalies:** {total_true}")
         st.write(f"**Precision:** {precision:.2f}")
         st.write(f"**Recall:** {recall:.2f}")
         st.write(f"**F1 Score:** {f1:.2f}")
+
+    st.markdown(f"### 🧪 Threshold used: `{adjusted_threshold:.6f}`")
+
+# -----------------------------
+# 🧍 User Manual Input Section
+# -----------------------------
+st.markdown("---")
+st.markdown("## 🔍 Check a Custom Activity Sample")
+
+with st.form("anomaly_form"):
+    steps = st.number_input("Steps", min_value=0, value=1000)
+    activity_duration = st.number_input("Activity Duration (minutes)", min_value=0.0, value=30.0)
+    step_frequency = st.number_input("Step Frequency", min_value=0.0, value=1.2)
+    rest_period = st.number_input("Rest Period (minutes)", min_value=0.0, value=5.0)
+    noise_flag = st.selectbox("Noise Flag", [0, 1])
+    battery_level = st.slider("Battery Level (%)", 0, 100, 80)
+
+    submitted = st.form_submit_button("Check Anomaly")
+
+    if submitted:
+        user_input = np.array([[steps, activity_duration, step_frequency, rest_period, noise_flag, battery_level]])
+        user_scaled = scaler.transform(user_input)
+        user_pred = model.predict(user_scaled)
+        user_error = np.mean(np.square(user_scaled - user_pred), axis=1)
+        user_error_smooth = gaussian_filter1d(user_error, sigma=1)
+        is_anomaly = user_error_smooth[0] > adjusted_threshold
+
+        if is_anomaly:
+            st.error("⚠️ Anomaly Detected!")
+        else:
+            st.success("✅ No Anomaly Detected.")
+        st.write(f"Reconstruction Error: `{user_error_smooth[0]:.6f}`")

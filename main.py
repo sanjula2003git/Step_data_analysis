@@ -101,6 +101,38 @@ st.markdown(f"### 🧪 Threshold used for user check: `{best_threshold:.6f}`")
 # 🧍 User Manual Input Section
 # -----------------------------
 st.markdown("---")
+# -----------------------------
+# 🎚️ Threshold Slider Section
+# -----------------------------
+st.markdown("## 🎛️ Manual Threshold Tuning (Optional)")
+st.write("Use the slider to adjust the threshold manually and see how it affects anomaly detection.")
+
+manual_threshold = st.slider(
+    "Select threshold for anomaly detection",
+    float(np.min(reconstruction_error_smooth)),
+    float(np.max(reconstruction_error_smooth)),
+    float(best_threshold),
+    step=0.00001,
+    format="%.6f"
+)
+
+manual_preds = (reconstruction_error_smooth > manual_threshold).astype(int)
+df['manual_anomaly_predicted'] = manual_preds
+
+# Display metrics for manual threshold
+if y_true is not None:
+    manual_precision = precision_score(y_true, manual_preds, zero_division=0)
+    manual_recall = recall_score(y_true, manual_preds, zero_division=0)
+    manual_f1 = f1_score(y_true, manual_preds, zero_division=0)
+
+    st.markdown("### 🧮 Metrics for Manual Threshold")
+    st.write(f"🔧 Threshold: `{manual_threshold:.6f}`")
+    st.write(f"🎯 Precision: `{manual_precision:.2f}`")
+    st.write(f"📈 Recall: `{manual_recall:.2f}`")
+    st.write(f"📊 F1 Score: `{manual_f1:.2f}`")
+
+st.dataframe(df[['steps', 'activity_duration', 'step_frequency', 'manual_anomaly_predicted']])
+
 st.markdown("## 🔍 Check a Custom Activity Sample")
 
 with st.form("anomaly_form"):

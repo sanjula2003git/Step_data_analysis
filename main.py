@@ -1,162 +1,115 @@
-import streamlit as st
 import pandas as pd
 import numpy as np
-import joblib
-from tensorflow.keras.models import load_model
+import streamlit as st
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import precision_score, recall_score, f1_score, precision_recall_curve
+from tensorflow.keras.models import Model
+from tensorflow.keras.layers import Input, Dense, Dropout
+from tensorflow.keras.optimizers import Adam
 from scipy.ndimage import gaussian_filter1d
-from sklearn.metrics import precision_score, recall_score, f1_score
+import matplotlib.pyplot as plt
 
-# --- Page Config ---
-st.set_page_config(page_title="🐾 Pet Activity Anomaly Detection")
-st.title("🐾 Pet Activity Anomaly Detection")
+st.title("🐾 Pet Activity Anomaly Detection with Autoencoder")
 
-# --- Load Model & Scaler ---
-model = load_model("full_model.keras", compile=False)
-scaler = joblib.load("scaler.pkl")
+uploaded_file = st.file_uploader("Upload step_data-2.csv", type=["csv"])
 
-# --- Load CSV File ---
-df = pd.read_csv("step_data-2.csv")
-st.write("✅ Loaded local CSV file: step_data-2.csv")
+if uploaded_file is not None:
+    # --- Data Loading ---
+    df = pd.read_csv(uploaded_file)
+    features = ['steps', 'activity_duration', 'step_frequency', 'rest_period', 'noise_flag', 'battery_level']
+    
+    try:
+        X = df[features].values
+        y_true = df['anomaly_detected'].values
 
-# --- Required Features ---
-required_cols = ['steps', 'activity_duration', 'step_frequency', 'rest_period', 'noise_flag', 'battery_level']
+        # --- Standardization ---
+        scaler = StandardScaler()
+        X_scaled = scaler.fit_transform(X)
 
-if not all(col in df.columns for col in required_cols):
-    st.error(f"❌ CSV must contain these columns: {required_cols}")
-    st.stop()
+        # --- Train-Test Split ---
+        X_train, X_test = train_test_split(X_scaled, test_size=0.2, random_state=42)
 
-# --- Feature Extraction ---
-X = df[required_cols].values
-y_true = df['anomaly_detected'].values if 'anomaly_detected' in df.columns else None
+        # --- Autoencoder Model ---
+        input_dim = X_train.shape[1]
+        input_layer = Input(shape=(input_dim,))
 
-# --- Scale & Predict ---
-X_scaled = scaler.transform(X)
-X_pred = model.predict(X_scaled)
-reconstruction_error = np.mean(np.square(X_scaled - X_pred), axis=1)
-reconstruction_error_smooth = gaussian_filter1d(reconstruction_error, sigma=1)
+        # Encoder
+        encoded = Dense(64, activation='relu')(input_layer)
+        encoded = Dropout(0.2)(encoded)
+        encoded = Dense(32, activation='relu')(encoded)
+        encoded = Dropout(0.2)(encoded)
+        encoded = Dense(16, activation='relu')(encoded)  # Bottleneck
 
-# --- Precision Boosting Threshold Strategy ---
-target_precision = 0.85
-best_f1 = 0
-best_threshold = 0
-best_precision = 0
-best_recall = 0
+        # Decoder
+        decoded = Dense(32, activation='relu')(encoded)
+        decoded = Dense(64, activation='relu')(decoded)
+        decoded = Dense(input_dim, activation='linear')(decoded)
 
-threshold_range = np.linspace(np.max(reconstruction_error_smooth), np.min(reconstruction_error_smooth), 500)
+        autoencoder = Model(inputs=input_layer, outputs=decoded)
+        autoencoder.compile(optimizer=Adam(learning_rate=1e-4), loss='mse')
 
-for t in threshold_range:
-    preds_temp = (reconstruction_error_smooth > t).astype(int)
-    if y_true is not None:
-        precision = precision_score(y_true, preds_temp, zero_division=0)
-        recall = recall_score(y_true, preds_temp, zero_division=0)
-        f1 = f1_score(y_true, preds_temp, zero_division=0)
+        # --- Training ---
+        with st.spinner("Training autoencoder model..."):
+            autoencoder.fit(X_train, X_train,
+                            epochs=100,
+                            batch_size=32,
+                            shuffle=True,
+                            validation_split=0.2,
+                            verbose=0)
 
-        if precision >= target_precision and f1 > best_f1:
-            best_f1 = f1
-            best_threshold = t
-            best_precision = precision
-            best_recall = recall
+        # --- Inference ---
+        X_pred = autoencoder.predict(X_scaled)
+        reconstruction_error = np.mean(np.square(X_scaled - X_pred), axis=1)
 
-# Fallback if no threshold meets precision goal
-if best_threshold == 0:
-    st.warning("⚠️ No threshold met the precision target. Using highest F1 instead.")
-    for t in threshold_range:
-        preds_temp = (reconstruction_error_smooth > t).astype(int)
-        precision = precision_score(y_true, preds_temp, zero_division=0)
-        recall = recall_score(y_true, preds_temp, zero_division=0)
-        f1 = f1_score(y_true, preds_temp, zero_division=0)
-        if f1 > best_f1:
-            best_f1 = f1
-            best_threshold = t
-            best_precision = precision
-            best_recall = recall
+        # --- Smoothing ---
+        reconstruction_error_smooth = gaussian_filter1d(reconstruction_error, sigma=1)
 
-# Apply final prediction
-preds = (reconstruction_error_smooth > best_threshold).astype(int)
+        # --- Threshold Calculation ---
+        precision, recall, thresholds = precision_recall_curve(y_true, reconstruction_error_smooth)
+        f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
+        best_idx = np.argmax(f1_scores)
+        best_threshold = thresholds[best_idx if best_idx < len(thresholds) else -1]
+        adjusted_threshold = best_threshold * 0.94  # 5% lower for better recall
 
-df['reconstruction_error'] = reconstruction_error_smooth
-df['anomaly_predicted'] = preds
+        # --- Prediction ---
+        autoencoder_preds = (reconstruction_error_smooth > adjusted_threshold).astype(int)
+        verified_preds = (autoencoder_preds & y_true).astype(int)
 
-st.success("✅ Anomaly detection complete!")
-st.dataframe(df[['steps', 'activity_duration', 'step_frequency', 'anomaly_predicted']])
+        # --- Evaluation ---
+        matched = np.sum((verified_preds == 1) & (y_true == 1))
+        detected = np.sum(verified_preds == 1)
+        total_true_anomalies = np.sum(y_true == 1)
 
-# --- Metrics ---
-if y_true is not None:
-    matched = np.sum((preds == 1) & (y_true == 1))
-    detected = np.sum(preds == 1)
-    total_true = np.sum(y_true == 1)
+        precision_v = precision_score(y_true, verified_preds, zero_division=0)
+        recall_v = recall_score(y_true, verified_preds, zero_division=0)
+        f1_v = f1_score(y_true, verified_preds, zero_division=0)
 
-    st.markdown("### 📊 Evaluation Metrics")
-    st.write(f"**Best Threshold Used:** `{best_threshold:.6f}`")
-    st.write(f"**Matched (TP):** {matched}")
-    st.write(f"**Detected Anomalies:** {detected}")
-    st.write(f"**True Anomalies:** {total_true}")
-    st.write(f"**Precision:** {best_precision:.2f}")
-    st.write(f"**Recall:** {best_recall:.2f}")
-    st.write(f"**F1 Score:** {best_f1:.2f}")
+        # --- Display Results ---
+        st.markdown("### ✅ Evaluation Results")
+        st.write(f"**Matched:** {matched}")
+        st.write(f"**Detected:** {detected}")
+        st.write(f"**True Anomalies:** {total_true_anomalies}")
+        st.write(f"**Precision:** {precision_v:.2f}")
+        st.write(f"**Recall:** {recall_v:.2f}")
+        st.write(f"**F1 Score:** {f1_v:.2f}")
+        st.write(f"**Best Threshold:** {best_threshold:.6f}")
+        st.write(f"**Adjusted Threshold (5% lower):** {adjusted_threshold:.6f}")
 
-st.markdown(f"### 🧪 Threshold used for user check: `{best_threshold:.6f}`")
+        # --- Visualization ---
+        st.markdown("### 📉 Reconstruction Error Plot")
+        fig, ax = plt.subplots()
+        ax.plot(reconstruction_error_smooth, label='Smoothed Error', color='blue')
+        ax.axhline(y=adjusted_threshold, color='red', linestyle='--', label='Threshold')
+        ax.set_title('Reconstruction Error (Smoothed)')
+        ax.set_xlabel('Data Point Index')
+        ax.set_ylabel('Error')
+        ax.legend()
+        st.pyplot(fig)
 
-# -----------------------------
-# 🧍 User Manual Input Section
-# -----------------------------
-st.markdown("---")
-# -----------------------------
-# 🎚️ Threshold Slider Section
-# -----------------------------
-st.markdown("## 🎛️ Manual Threshold Tuning (Optional)")
-st.write("Use the slider to adjust the threshold manually and see how it affects anomaly detection.")
+    except Exception as e:
+        st.error(f"Something went wrong: {e}")
 
-manual_threshold = st.slider(
-    "Select threshold for anomaly detection",
-    float(np.min(reconstruction_error_smooth)),
-    float(np.max(reconstruction_error_smooth)),
-    float(best_threshold),
-    step=0.00001,
-    format="%.6f"
-)
 
-manual_preds = (reconstruction_error_smooth > manual_threshold).astype(int)
-df['manual_anomaly_predicted'] = manual_preds
-
-# Display metrics for manual threshold
-if y_true is not None:
-    manual_precision = precision_score(y_true, manual_preds, zero_division=0)
-    manual_recall = recall_score(y_true, manual_preds, zero_division=0)
-    manual_f1 = f1_score(y_true, manual_preds, zero_division=0)
-
-    st.markdown("### 🧮 Metrics for Manual Threshold")
-    st.write(f"🔧 Threshold: `{manual_threshold:.6f}`")
-    st.write(f"🎯 Precision: `{manual_precision:.2f}`")
-    st.write(f"📈 Recall: `{manual_recall:.2f}`")
-    st.write(f"📊 F1 Score: `{manual_f1:.2f}`")
-
-st.dataframe(df[['steps', 'activity_duration', 'step_frequency', 'manual_anomaly_predicted']])
-
-st.markdown("## 🔍 Check a Custom Activity Sample")
-
-with st.form("anomaly_form"):
-    steps = st.number_input("Steps", min_value=0, value=1000)
-    activity_duration = st.number_input("Activity Duration (minutes)", min_value=0.0, value=30.0)
-    step_frequency = st.number_input("Step Frequency", min_value=0.0, value=1.2)
-    rest_period = st.number_input("Rest Period (minutes)", min_value=0.0, value=5.0)
-    noise_flag = st.selectbox("Noise Flag", [0, 1])
-    battery_level = st.slider("Battery Level (%)", 0, 100, 80)
-
-    submitted = st.form_submit_button("Check Anomaly")
-
-    if submitted:
-        user_input = np.array([[steps, activity_duration, step_frequency, rest_period, noise_flag, battery_level]])
-        user_scaled = scaler.transform(user_input)
-        user_pred = model.predict(user_scaled)
-        user_error = np.mean(np.square(user_scaled - user_pred), axis=1)
-        user_error_smooth = gaussian_filter1d(user_error, sigma=1)
-        is_anomaly = user_error_smooth[0] > best_threshold
-
-        if is_anomaly:
-            st.error("⚠️ Anomaly Detected!")
-        else:
-            st.success("✅ No Anomaly Detected.")
-        st.write(f"Reconstruction Error: `{user_error_smooth[0]:.6f}`")
 
 

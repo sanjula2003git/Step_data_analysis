@@ -46,6 +46,7 @@ else:
     from sklearn.metrics import precision_score, recall_score, f1_score
 
 # Sweep threshold values to find best F1 score
+    target_precision=0.85
     best_f1 = 0
     best_threshold = 0
     best_precision = 0

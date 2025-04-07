@@ -11,7 +11,7 @@ st.set_page_config(page_title="🐾 Pet Activity Anomaly Detection")
 st.title("🐾 Pet Activity Anomaly Detection")
 
 # --- Load Model & Scaler ---
-model = load_model("full_model.h5", compile=False)
+model = load_model("full_model.keras", compile=False)
 scaler = joblib.load("scaler.pkl")
 
 # --- Load CSV File ---

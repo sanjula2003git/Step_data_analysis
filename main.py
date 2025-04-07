@@ -71,10 +71,10 @@ else:
           recall = recall_score(y_true, preds_temp, zero_division=0)
           f1 = f1_score(y_true, preds_temp, zero_division=0)
           if f1 > best_f1:
-            best_f1 = f1
-            best_threshold = t
-            best_precision = precision
-            best_recall = recallif best_threshold == 0:  # fallback if no threshold meets precision requirement
+             best_f1 = f1
+             best_threshold = t
+             best_precision = precision
+             best_recall = recallif best_threshold == 0:  # fallback if no threshold meets precision requirement
    
 
 # Use best threshold for final prediction

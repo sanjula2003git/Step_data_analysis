@@ -12,7 +12,7 @@ from scipy.ndimage import gaussian_filter1d
 st.title("🐾 Pet Activity Anomaly Detector")
 
 # --- Load fixed CSV ---
-df = pd.read_csv("step_data.csv")  # Replace with your CSV file name
+df = pd.read_csv("step_data-2.csv")  # Replace with your CSV file name
 
 features = ['steps', 'activity_duration', 'step_frequency', 'rest_period', 'noise_flag', 'battery_level']
 X = df[features].values

@@ -81,7 +81,7 @@ user_input_scaled = scaler.transform(user_input)
 
 # --- Predict ---
 if st.button("Predict Anomaly"):
-    pred = autoencoder.predict(user_input_scaled)
+    pred = autoencoder.predict(user_input_scaled.reshape(1, -1))
     reconstruction_err = np.mean(np.square(user_input_scaled - pred))
     is_anomaly = reconstruction_err > adjusted_threshold
 
@@ -97,7 +97,3 @@ if st.button("Predict Anomaly"):
     st.write(f"**Recall:** {recall_v:.2f}")
     st.write(f"**F1 Score:** {f1_v:.2f}")
     st.write(f"**Adjusted Threshold:** {adjusted_threshold:.6f}")
-
-
-
-

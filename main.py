@@ -64,14 +64,18 @@ precision, recall, thresholds = precision_recall_curve(y_true, reconstruction_er
 f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
 best_idx = np.argmax(f1_scores)
 best_threshold = thresholds[best_idx if best_idx < len(thresholds) else -1]
-adjusted_threshold = best_threshold * 0.94
+adjusted_threshold = best_threshold * 0.93
 
 # --- Metrics ---
 autoencoder_preds = (reconstruction_error_smooth > adjusted_threshold).astype(int)
 verified_preds = (autoencoder_preds & y_true).astype(int)
 precision_v = precision_score(y_true, verified_preds, zero_division=0)
 recall_v = recall_score(y_true, verified_preds, zero_division=0)
-f1_v = f1_score(y_true, verified_preds, zero_division=0)
+f1_v = f1_score(y_true, verified_preds, zero_division=0)st.markdown("### 🔬 Threshold Tuning Insight")
+st.write(f"**Original Best Threshold:** {best_threshold:.6f}")
+st.write(f"**Adjusted Threshold (Recall Boost):** {adjusted_threshold:.6f}")
+
+
 
 # --- User Input ---
 st.markdown("### 📥 Enter Activity Details")

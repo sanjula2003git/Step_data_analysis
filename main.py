@@ -11,61 +11,64 @@ from scipy.ndimage import gaussian_filter1d
 
 st.title("🐾 Pet Activity Anomaly Detector")
 
-# --- Load fixed CSV ---
-df = pd.read_csv("step_data-2.csv")  # Replace with your CSV file name
+# --- Load CSV ---
+@st.cache_data
+def load_data():
+    df = pd.read_csv("step_data-2.csv")
+    features = ['steps', 'activity_duration', 'step_frequency', 'rest_period', 'noise_flag', 'battery_level']
+    X = df[features].values
+    y = df['anomaly_detected'].values
+    return X, y
 
-features = ['steps', 'activity_duration', 'step_frequency', 'rest_period', 'noise_flag', 'battery_level']
-X = df[features].values
-y_true = df['anomaly_detected'].values
+X, y_true = load_data()
 
-# --- Standardization ---
+# --- Standardize ---
 scaler = StandardScaler()
 X_scaled = scaler.fit_transform(X)
 
-# --- Train-Test Split ---
+# --- Split data ---
 X_train, X_test = train_test_split(X_scaled, test_size=0.2, random_state=42)
 
-# --- Cached Autoencoder Builder ---
+# --- Cached model building ---
 @st.cache_resource
-def build_autoencoder(input_dim):
+def build_autoencoder_model(input_dim):
     input_layer = Input(shape=(input_dim,))
-
-    # Encoder
     encoded = Dense(64, activation='relu')(input_layer)
     encoded = Dropout(0.2)(encoded)
     encoded = Dense(32, activation='relu')(encoded)
     encoded = Dropout(0.2)(encoded)
     encoded = Dense(16, activation='relu')(encoded)
-
-    # Decoder
     decoded = Dense(32, activation='relu')(encoded)
     decoded = Dense(64, activation='relu')(decoded)
     decoded = Dense(input_dim, activation='linear')(decoded)
+    model = Model(inputs=input_layer, outputs=decoded)
+    model.compile(optimizer=Adam(learning_rate=1e-4), loss='mse')
+    return model
 
-    autoencoder = Model(inputs=input_layer, outputs=decoded)
-    autoencoder.compile(optimizer=Adam(learning_rate=1e-4), loss='mse')
-    return autoencoder
+# --- Cached training step ---
+@st.cache_resource
+def train_autoencoder():
+    model = build_autoencoder_model(X_train.shape[1])
+    model.fit(X_train, X_train, epochs=100, batch_size=32, shuffle=True, validation_split=0.2, verbose=0)
+    return model
 
-# --- Build and Train Autoencoder ---
-autoencoder = build_autoencoder(X_train.shape[1])
-autoencoder.fit(X_train, X_train, epochs=100, batch_size=32, shuffle=True, validation_split=0.2, verbose=0)
+autoencoder = train_autoencoder()
 
-# --- Inference & Thresholding ---
+# --- Inference ---
 X_pred = autoencoder.predict(X_scaled)
 reconstruction_error = np.mean(np.square(X_scaled - X_pred), axis=1)
 reconstruction_error_smooth = gaussian_filter1d(reconstruction_error, sigma=1)
 
-# --- Calculate Threshold ---
+# --- Thresholding ---
 precision, recall, thresholds = precision_recall_curve(y_true, reconstruction_error_smooth)
 f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
 best_idx = np.argmax(f1_scores)
 best_threshold = thresholds[best_idx if best_idx < len(thresholds) else -1]
-adjusted_threshold = best_threshold * 0.94  # Slightly lower for better recall
+adjusted_threshold = best_threshold * 0.94
 
-# --- Evaluation Metrics ---
+# --- Metrics ---
 autoencoder_preds = (reconstruction_error_smooth > adjusted_threshold).astype(int)
 verified_preds = (autoencoder_preds & y_true).astype(int)
-
 precision_v = precision_score(y_true, verified_preds, zero_division=0)
 recall_v = recall_score(y_true, verified_preds, zero_division=0)
 f1_v = f1_score(y_true, verified_preds, zero_division=0)
@@ -82,9 +85,9 @@ battery_level = st.number_input("Battery Level (%)", min_value=0, max_value=100)
 user_input = np.array([[steps, activity_duration, step_frequency, rest_period, noise_flag, battery_level]])
 user_input_scaled = scaler.transform(user_input)
 
-# --- Predict ---
+# --- Prediction ---
 if st.button("Predict Anomaly"):
-    pred = autoencoder.predict(user_input_scaled.reshape(1, -1))
+    pred = autoencoder.predict(user_input_scaled)
     reconstruction_err = np.mean(np.square(user_input_scaled - pred))
     is_anomaly = reconstruction_err > adjusted_threshold
 
@@ -94,9 +97,10 @@ if st.button("Predict Anomaly"):
     else:
         st.success("✅ Normal Activity")
 
-    # --- Show Evaluation Metrics ---
+    # --- Model Performance ---
     st.markdown("### 📊 Model Performance")
     st.write(f"**Precision:** {precision_v:.2f}")
     st.write(f"**Recall:** {recall_v:.2f}")
     st.write(f"**F1 Score:** {f1_v:.2f}")
     st.write(f"**Adjusted Threshold:** {adjusted_threshold:.6f}")
+

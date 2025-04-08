@@ -64,7 +64,7 @@ precision, recall, thresholds = precision_recall_curve(y_true, reconstruction_er
 f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
 best_idx = np.argmax(f1_scores)
 best_threshold = thresholds[best_idx if best_idx < len(thresholds) else -1]
-adjusted_threshold = best_threshold * 0.91
+adjusted_threshold = best_threshold * 0.90
 
 # --- Metrics ---
 autoencoder_preds = (reconstruction_error_smooth > adjusted_threshold).astype(int)

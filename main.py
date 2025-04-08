@@ -8,115 +8,95 @@ from tensorflow.keras.models import Model
 from tensorflow.keras.layers import Input, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
 from scipy.ndimage import gaussian_filter1d
-import matplotlib.pyplot as plt
 
-st.title("🐾 Pet Activity Anomaly Detection with Autoencoder")
+st.title("🐾 Pet Activity Anomaly Detector")
 
-uploaded_file = st.file_uploader("Upload step_data-2.csv", type=["csv"])
+# --- Load fixed CSV ---
+df = pd.read_csv("step_data.csv")  # Replace with your CSV file name
 
-if uploaded_file is not None:
-    # --- Load Data ---
-    df = pd.read_csv(uploaded_file)
+features = ['steps', 'activity_duration', 'step_frequency', 'rest_period', 'noise_flag', 'battery_level']
+X = df[features].values
+y_true = df['anomaly_detected'].values
 
-    features = ['steps', 'activity_duration', 'step_frequency', 'rest_period', 'noise_flag', 'battery_level']
+# --- Standardization ---
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
 
-    try:
-        X = df[features].values
-        y_true = df['anomaly_detected'].values
+# --- Train-Test Split ---
+X_train, X_test = train_test_split(X_scaled, test_size=0.2, random_state=42)
 
-        # --- Standardize ---
-        scaler = StandardScaler()
-        X_scaled = scaler.fit_transform(X)
+# --- Autoencoder Model ---
+input_dim = X_train.shape[1]
+input_layer = Input(shape=(input_dim,))
 
-        # --- Train-Test Split ---
-        X_train, X_test = train_test_split(X_scaled, test_size=0.2, random_state=42)
+# Encoder
+encoded = Dense(64, activation='relu')(input_layer)
+encoded = Dropout(0.2)(encoded)
+encoded = Dense(32, activation='relu')(encoded)
+encoded = Dropout(0.2)(encoded)
+encoded = Dense(16, activation='relu')(encoded)
 
-        # --- Autoencoder ---
-        input_dim = X_train.shape[1]
-        input_layer = Input(shape=(input_dim,))
+# Decoder
+decoded = Dense(32, activation='relu')(encoded)
+decoded = Dense(64, activation='relu')(decoded)
+decoded = Dense(input_dim, activation='linear')(decoded)
 
-        encoded = Dense(64, activation='relu')(input_layer)
-        encoded = Dropout(0.2)(encoded)
-        encoded = Dense(32, activation='relu')(encoded)
-        encoded = Dropout(0.2)(encoded)
-        encoded = Dense(16, activation='relu')(encoded)
+autoencoder = Model(inputs=input_layer, outputs=decoded)
+autoencoder.compile(optimizer=Adam(learning_rate=1e-4), loss='mse')
 
-        decoded = Dense(32, activation='relu')(encoded)
-        decoded = Dense(64, activation='relu')(decoded)
-        decoded = Dense(input_dim, activation='linear')(decoded)
+# --- Training ---
+autoencoder.fit(X_train, X_train, epochs=100, batch_size=32, shuffle=True, validation_split=0.2, verbose=0)
 
-        autoencoder = Model(inputs=input_layer, outputs=decoded)
-        autoencoder.compile(optimizer=Adam(learning_rate=1e-4), loss='mse')
+# --- Inference & Thresholding ---
+X_pred = autoencoder.predict(X_scaled)
+reconstruction_error = np.mean(np.square(X_scaled - X_pred), axis=1)
+reconstruction_error_smooth = gaussian_filter1d(reconstruction_error, sigma=1)
 
-        with st.spinner("Training autoencoder model..."):
-            autoencoder.fit(X_train, X_train,
-                            epochs=100,
-                            batch_size=32,
-                            shuffle=True,
-                            validation_split=0.2,
-                            verbose=0)
+# Calculate best threshold
+precision, recall, thresholds = precision_recall_curve(y_true, reconstruction_error_smooth)
+f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
+best_idx = np.argmax(f1_scores)
+best_threshold = thresholds[best_idx if best_idx < len(thresholds) else -1]
+adjusted_threshold = best_threshold * 0.94  # Lowered to improve recall
 
-        # --- Inference on Training Data ---
-        X_pred = autoencoder.predict(X_scaled)
-        reconstruction_error = np.mean(np.square(X_scaled - X_pred), axis=1)
+# --- Evaluation Metrics ---
+autoencoder_preds = (reconstruction_error_smooth > adjusted_threshold).astype(int)
+verified_preds = (autoencoder_preds & y_true).astype(int)
 
-        # --- Smoothing & Threshold ---
-        reconstruction_error_smooth = gaussian_filter1d(reconstruction_error, sigma=1)
+precision_v = precision_score(y_true, verified_preds, zero_division=0)
+recall_v = recall_score(y_true, verified_preds, zero_division=0)
+f1_v = f1_score(y_true, verified_preds, zero_division=0)
 
-        precision, recall, thresholds = precision_recall_curve(y_true, reconstruction_error_smooth)
-        f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
-        best_idx = np.argmax(f1_scores)
-        best_threshold = thresholds[best_idx if best_idx < len(thresholds) else -1]
-        adjusted_threshold = best_threshold * 0.94
+# --- User Input ---
+st.markdown("### 📥 Enter Activity Details")
+steps = st.number_input("Steps", min_value=0)
+activity_duration = st.number_input("Activity Duration (seconds)", min_value=0)
+step_frequency = st.number_input("Step Frequency (Hz)", min_value=0.0)
+rest_period = st.number_input("Rest Period (seconds)", min_value=0)
+noise_flag = st.selectbox("Noise Flag", [0, 1])
+battery_level = st.number_input("Battery Level (%)", min_value=0, max_value=100)
 
-        # --- Prediction on Existing Data (for evaluation only) ---
-        autoencoder_preds = (reconstruction_error_smooth > adjusted_threshold).astype(int)
-        verified_preds = (autoencoder_preds & y_true).astype(int)
+user_input = np.array([[steps, activity_duration, step_frequency, rest_period, noise_flag, battery_level]])
+user_input_scaled = scaler.transform(user_input)
 
-        precision_v = precision_score(y_true, verified_preds, zero_division=0)
-        recall_v = recall_score(y_true, verified_preds, zero_division=0)
-        f1_v = f1_score(y_true, verified_preds, zero_division=0)
+# --- Predict ---
+if st.button("Predict Anomaly"):
+    pred = autoencoder.predict(user_input_scaled)
+    reconstruction_err = np.mean(np.square(user_input_scaled - pred))
+    is_anomaly = reconstruction_err > adjusted_threshold
 
-        # --- Display Evaluation ---
-        st.markdown("### ✅ Model Evaluation")
-        st.write(f"**Precision:** {precision_v:.2f}")
-        st.write(f"**Recall:** {recall_v:.2f}")
-        st.write(f"**F1 Score:** {f1_v:.2f}")
-        st.write(f"**Adjusted Threshold:** {adjusted_threshold:.6f}")
+    st.markdown("### 🔍 Prediction")
+    if is_anomaly:
+        st.error("🚨 Anomaly Detected!")
+    else:
+        st.success("✅ Normal Activity")
 
-        # --- Visualize Error ---
-        st.markdown("### 📉 Reconstruction Error (Smoothed)")
-        fig, ax = plt.subplots()
-        ax.plot(reconstruction_error_smooth, label='Smoothed Error', color='blue')
-        ax.axhline(y=adjusted_threshold, color='red', linestyle='--', label='Threshold')
-        ax.set_title('Reconstruction Error')
-        ax.set_xlabel('Index')
-        ax.set_ylabel('Error')
-        ax.legend()
-        st.pyplot(fig)
-
-        # --- User Input Section ---
-        st.markdown("### 🧾 Predict New Input")
-        input_data = []
-        for feature in features:
-            value = st.number_input(f"Enter {feature}", value=0.0, format="%.4f")
-            input_data.append(value)
-
-        if st.button("🔍 Predict Anomaly"):
-            input_array = np.array(input_data).reshape(1, -1)
-            input_scaled = scaler.transform(input_array)
-
-            reconstructed = autoencoder.predict(input_scaled)
-            error = np.mean(np.square(input_scaled - reconstructed))
-            smoothed_error = gaussian_filter1d([error], sigma=1)[0]
-
-            is_anomaly = smoothed_error > adjusted_threshold
-
-            st.write(f"**Reconstruction Error:** {smoothed_error:.6f}")
-            st.markdown(f"### 🔎 Prediction Result: {'🚨 Anomaly Detected' if is_anomaly else '✅ Normal Behavior'}")
-
-    except Exception as e:
-        st.error(f"Error: {e}")
+    # --- Show Evaluation Metrics ---
+    st.markdown("### 📊 Model Performance")
+    st.write(f"**Precision:** {precision_v:.2f}")
+    st.write(f"**Recall:** {recall_v:.2f}")
+    st.write(f"**F1 Score:** {f1_v:.2f}")
+    st.write(f"**Adjusted Threshold:** {adjusted_threshold:.6f}")
 
 
 

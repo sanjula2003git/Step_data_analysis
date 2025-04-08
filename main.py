@@ -25,26 +25,29 @@ X_scaled = scaler.fit_transform(X)
 # --- Train-Test Split ---
 X_train, X_test = train_test_split(X_scaled, test_size=0.2, random_state=42)
 
-# --- Autoencoder Model ---
-input_dim = X_train.shape[1]
-input_layer = Input(shape=(input_dim,))
+# --- Cached Autoencoder Builder ---
+@st.cache_resource
+def build_autoencoder(input_dim):
+    input_layer = Input(shape=(input_dim,))
 
-# Encoder
-encoded = Dense(64, activation='relu')(input_layer)
-encoded = Dropout(0.2)(encoded)
-encoded = Dense(32, activation='relu')(encoded)
-encoded = Dropout(0.2)(encoded)
-encoded = Dense(16, activation='relu')(encoded)
+    # Encoder
+    encoded = Dense(64, activation='relu')(input_layer)
+    encoded = Dropout(0.2)(encoded)
+    encoded = Dense(32, activation='relu')(encoded)
+    encoded = Dropout(0.2)(encoded)
+    encoded = Dense(16, activation='relu')(encoded)
 
-# Decoder
-decoded = Dense(32, activation='relu')(encoded)
-decoded = Dense(64, activation='relu')(decoded)
-decoded = Dense(input_dim, activation='linear')(decoded)
+    # Decoder
+    decoded = Dense(32, activation='relu')(encoded)
+    decoded = Dense(64, activation='relu')(decoded)
+    decoded = Dense(input_dim, activation='linear')(decoded)
 
-autoencoder = Model(inputs=input_layer, outputs=decoded)
-autoencoder.compile(optimizer=Adam(learning_rate=1e-4), loss='mse')
+    autoencoder = Model(inputs=input_layer, outputs=decoded)
+    autoencoder.compile(optimizer=Adam(learning_rate=1e-4), loss='mse')
+    return autoencoder
 
-# --- Training ---
+# --- Build and Train Autoencoder ---
+autoencoder = build_autoencoder(X_train.shape[1])
 autoencoder.fit(X_train, X_train, epochs=100, batch_size=32, shuffle=True, validation_split=0.2, verbose=0)
 
 # --- Inference & Thresholding ---
@@ -52,12 +55,12 @@ X_pred = autoencoder.predict(X_scaled)
 reconstruction_error = np.mean(np.square(X_scaled - X_pred), axis=1)
 reconstruction_error_smooth = gaussian_filter1d(reconstruction_error, sigma=1)
 
-# Calculate best threshold
+# --- Calculate Threshold ---
 precision, recall, thresholds = precision_recall_curve(y_true, reconstruction_error_smooth)
 f1_scores = 2 * (precision * recall) / (precision + recall + 1e-10)
 best_idx = np.argmax(f1_scores)
 best_threshold = thresholds[best_idx if best_idx < len(thresholds) else -1]
-adjusted_threshold = best_threshold * 0.94  # Lowered to improve recall
+adjusted_threshold = best_threshold * 0.94  # Slightly lower for better recall
 
 # --- Evaluation Metrics ---
 autoencoder_preds = (reconstruction_error_smooth > adjusted_threshold).astype(int)

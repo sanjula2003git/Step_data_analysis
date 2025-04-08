@@ -71,7 +71,8 @@ autoencoder_preds = (reconstruction_error_smooth > adjusted_threshold).astype(in
 verified_preds = (autoencoder_preds & y_true).astype(int)
 precision_v = precision_score(y_true, verified_preds, zero_division=0)
 recall_v = recall_score(y_true, verified_preds, zero_division=0)
-f1_v = f1_score(y_true, verified_preds, zero_division=0)st.markdown("### 🔬 Threshold Tuning Insight")
+f1_v = f1_score(y_true, verified_preds, zero_division=0)
+st.markdown("### 🔬 Threshold Tuning Insight")
 st.write(f"**Original Best Threshold:** {best_threshold:.6f}")
 st.write(f"**Adjusted Threshold (Recall Boost):** {adjusted_threshold:.6f}")
 

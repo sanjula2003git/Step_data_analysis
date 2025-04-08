@@ -94,7 +94,11 @@ user_input_scaled = scaler.transform(user_input)
 if st.button("Predict Anomaly"):
     pred = autoencoder.predict(user_input_scaled)
     reconstruction_err = np.mean(np.square(user_input_scaled - pred))
-    is_anomaly = reconstruction_err > adjusted_threshold
+    is_anomaly = reconstruction_err > (adjusted_threshold + 0.005)
+    if is_anomaly:
+    st.error(f"🚨 Anomaly Detected! (Error: {reconstruction_err:.4f} > Threshold: {adjusted_threshold:.4f})")
+    else:
+    st.success(f"✅ Normal Activity (Error: {reconstruction_err:.4f} ≤ Threshold: {adjusted_threshold:.4f})")
 
     st.markdown("### 🔍 Prediction")
     if is_anomaly:
